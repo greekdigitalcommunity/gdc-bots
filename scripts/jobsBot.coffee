@@ -26,15 +26,26 @@ resetRedis = () ->
   localData = JSON.parse(fs.readFileSync "data/job_links.json", "utf8")
   redisClient.set("#{jobs_prefix}:storage", JSON.stringify(localData))
 
+postMessage = (robot, res, message, settings) ->
+    room = res.message.user.room
+    defaultSettings = if !settings then {as_user: false, username: "gdcBot", link_names: false, unfurl_links: false} else settings
+    robot.adapter.client.web.chat.postMessage(
+      room, message, settings
+    )
+
+react = (robot, res, reaction) ->
+  robot.adapter.client.web.reactions.add reaction, {channel: res.user.room, timestamp: res.rawMessage.ts}
+
 module.exports = (robot) ->
   robot.respond /commands/i, (res) ->
-    res.send "
-    ```
-    bot jobs -> returns the current list of jobs\n\n
-    bot addJob <url> -> adds a new job listing
-    bot deleteJob <index> -> deletes the job listing at the provided index
-    ```
-    "
+    postMessage robot, res,
+      "
+      ```
+      bot jobs -> returns the current list of jobs\n\n
+      bot addJob <url> -> adds a new job listing\n\n
+      bot deleteJob <index> -> deletes the job listing at the provided index
+      ```
+      "
 
   getDataset jobs_prefix, (error, dataset) ->
     if error
@@ -42,7 +53,7 @@ module.exports = (robot) ->
     else
       data = dataset
       if data == null
-        res.send "Can't talk to redis - resetting job data."
+        res.send "Can't talk to redis - setting job data from local backup"
         fs.readFile "data/job_links.json", (err, localData) ->
           syncToRedis localData
       else
@@ -51,10 +62,13 @@ module.exports = (robot) ->
       robot.respond /jobs/i, (res) ->
         response = ""
         index = 0
-        for job in data.jobs
-          index += 1
-          response += "#{index} - #{job.url} - posted by - @#{job.posted_by} - on `#{job.posted_on}`\n"
-        res.send response
+        if data.jobs.length == 0
+          postMessage robot, res, ":tumbleweed:"
+        else
+          for job in data.jobs
+            index += 1
+            response += "#{index} - #{job.url} - posted by - @#{job.posted_by} - on `#{job.posted_on}`\n"
+          postMessage robot, res, response
 
       robot.respond /addJob /i, (res) ->
         extracted_url = res.message.text.split(" ")[2]
@@ -62,19 +76,20 @@ module.exports = (robot) ->
           data.jobs.unshift {url: extracted_url, posted_by: res.message.user.name, posted_on: new Date().toUTCString()}
           syncToRedis data
           syncToLocalFile data
-          res.send "Added job listing -> #{JSON.stringify(data.jobs[0])}"
+          react robot, res.message, "thumbsup"
         else
-          res.send "Watcha doin bruv? that doesn't look like a valid url..."
+          react robot, res.message, "thumbsdown"
 
       robot.respond /deleteJob( (\d+))?/i, (res) ->
         index = parseInt(res.match[1])
         if !index
-          res.send "Watcha doin bruv? Need a valid index."
+          react robot, res.message, "thumbsdown"
         else
           index--;
           if index >= data.jobs.length || index < 0
-            res.send "Outta bounds bruv..."
+            react robot, res.message, "thumbsdown"
           else
             data.jobs.splice(index, 1)
+            react robot, res.message, "thumbsup"
             syncToLocalFile data
             syncToRedis data
