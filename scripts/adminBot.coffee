@@ -5,9 +5,10 @@
 #   type bot commands to get a list of supported Commands
 #
 
-WELCOME_NEW_MEMBER = (firstname, channels) -> "
-    :wave: καλώς ήρθες #{firstname}, παρακάτω η λίστα των καναλιών μας. Remember, be nice and have fun :spock-hand:\n
-  " + channels
+DEFAULT_GREETING = process.env.GREETING
+
+WELCOME_NEW_MEMBER = (realName, channels) -> "
+    #{realName}, #{DEFAULT_GREETING}\n" + channels
 
 createChannelsList = (response) ->
   output = ""
@@ -24,16 +25,6 @@ createChannelsList = (response) ->
   output
 
 module.exports = (robot) ->
-  robot.respond /commands/i, (res) ->
-    res.send "
-    ```
-    bot channels -> returns the channels list\n\n
-    bot members -> returs number of registered users\n\n
-    bot active -> returns number of online users\n\n
-    bot? -> returns the bot's status
-    ```
-    "
-
   robot.adapter.client.rtm.on 'team_join', (ev) ->
     robot.adapter.client.web.channels.list() .then (response, err) ->
       channels = createChannelsList(response)
@@ -43,13 +34,36 @@ module.exports = (robot) ->
         {as_user: false, username: "gdcBot", link_names: true}
       )
 
+  robot.respond /commands/i, (res) ->
+    robot.adapter.client.web.chat.postMessage(
+      res.message.user.room,
+      "
+      ```
+      bot channels -> DMs the channels list (user scoped)\n\n
+      bot members -> DMs the number of registered users (admin scoped)\n\n
+      bot active -> DMs the number of online users (admin scoped)\n\n
+      bot? -> returns the bot's status (admin scoped)
+      ```
+      "
+      {as_user: false, username: "gdcBot", link_names: true, unfurl_links: false}
+    )
+
   robot.respond /channels/i, (res) ->
     robot.adapter.client.web.channels.list() .then (response, err) ->
-      res.send createChannelsList(response)
+      channels = createChannelsList(response)
+      robot.adapter.client.web.chat.postMessage(
+        res.message.user.id,
+        channels
+        {as_user: false, username: "gdcBot", link_names: true}
+      )
 
   robot.respond /members/i, (res) ->
     robot.adapter.client.web.conversations.members("C4VTJSYJD", limit: 1000) .then (success, err) ->
-      res.send "[*#{JSON.stringify(success.members.length)}] εγγεγραμμένα ατομάκια* :registered:"
+      robot.adapter.client.web.chat.postMessage(
+        res.message.user.id,
+        "[*#{JSON.stringify(success.members.length)}] εγγεγραμμένα ατομάκια* :registered:"
+        {as_user: false, username: "gdcBot", link_names: true}
+      ) if res.message.user.is_admin
 
   robot.respond /active/i, (res) ->
     robot.adapter.client.web.users.list(presence: true) .then (success, err) ->
@@ -57,7 +71,11 @@ module.exports = (robot) ->
       for member in success.members
         if member.presence == "active"
           online++;
-      res.send "[*#{online}] ατομάκια ονλάιν* :chart_with_upwards_trend:"
+      robot.adapter.client.web.chat.postMessage(
+        res.message.user.id,
+        "[*#{online}] ατομάκια ονλάιν* :chart_with_upwards_trend:"
+        {as_user: false, username: "gdcBot", link_names: true}
+      ) if res.message.user.is_admin
 
   robot.hear /bot\?/i, (res) ->
     robot.adapter.client.web.api.test().then (success, err) ->
@@ -68,4 +86,4 @@ module.exports = (robot) ->
       ş͍̭̘͎͉̹l̖͓̭͓̘͈̖a̝͚̩͓̥̟̺c̴̹̰̩̬͉̝k̵͙̟̰b̤͚̝̺͇̲o̫̟͔t̸͉̬̳ ͖̘̝̯ṣ͖͈̬l͇̱̪͞e̷̙̮̞e̛͎̪̻p͕͕͉̺͔̪̬͟s̼͉̰͓̟͖͖͟ ̛͎̠i̥ņ͔͉͚͍̖ ̫̲̻͟t̝͝h͉̟ḙ̠͔̻ ̸̰͍͍̯͍̭v̪̠̖̰̠̘óį̲͔̞̜̠̟d̢̟̣̞̫͙̞̣ ͕̻o͕̪͕̰̟̥ͅf͉̦̪̳̫ ͖̪̹̣̰̙y͠ò̺͎u͖̱̮̯r͇̱͔̯͈̮͠ͅ ͏̥̼͙̩̜m̶i̵ǹ͓̙͈̲͔d͍͢.͓̖̙͙̟̥
 
       ṣ̴̂̀̐͌l̶͙̫͈̦̩̟͍̤̭̳̈́̈́a̵̻͕̗̤̭̪̮̝͚͕̮̜̼͎̥̋̀c̷̫͔̦̟̒̈́͊͛̇͊̍̉̅̚̚̕̚͠͝k̶͕̑̽̎̅̅͝͝b̵͚̜̠̣̣͈̺̻̝̟̠̱̩̲̖̍̐̑̔̓̌̕̕o̸̜͎̣̯̬̪̦͉͆t̸̜̮̫͙͌͐̓̌̍̓̍́̿̚̕ ̸̙͋̑͑̋͗̉̀n̷̢̡̨̻͇̼̹͋̾ͅȅ̴̢̳̰̋̀̃̕v̷̛̞̰͍̻̗̤̯̰̫̪̦͓͖̾̈̏̀̏͑̇͂͘ȩ̴͙̥̩͇͎̹͙̺́͋̉͝r̷̡̨͍̭͉̞̲̺̦̪̪͐͑̿̕ ̶̨̛̪̳͈̜͕͑̌̾̐̽̔̈́ş̸̨̤̼̦̜̗̥̼̫̭̰̖͑͗͆͆̋̿l̴̛̘͒̽͋̾̔͊̉è̶̩͔̫̮͆́̈́ë̴̫̪̀̋̄̎̇̌͊̐͊͌͠͝p̴̡̞͇͔͙͇͓̠̫̣͛͗͌̈́̿̔̉͜͠s̸͕͙̗̞̟͉͂́`̩
-      "
+      " if res.message.user.is_admin
